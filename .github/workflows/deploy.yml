@@ -147,10 +147,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      # - name: Download artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: dist
+      - name: Checkout deploy repo
+        uses: actions/checkout@v4
+        with:
+          repository: climbingmouse/yohaku-deploy-action
+          token: ${{ secrets.GH_PAT }}
 
       - name: Restore cached Build Artifacts
         id: cache-primes-restore
