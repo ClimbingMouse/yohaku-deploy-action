@@ -4,9 +4,7 @@ on:
   push:
     branches:
       - main
-  # schedule:
-  #   - cron: '0 3 * * *'
-
+  workflow_dispatch:
   repository_dispatch:
     types: [trigger-workflow]
 
@@ -17,57 +15,42 @@ concurrency:
 
 env:
   HASH_FILE: build_hash
-  SOURCE_REPO: innei-dev/Yohaku
-  BUILD_COMMAND: pnpm --filter @yohaku/web build:ci
-  STANDALONE_SUBPATH: standalone/apps/web
 
 jobs:
   prepare:
     name: Prepare
     runs-on: ubuntu-latest
     if: ${{ github.event.head_commit.message != 'Update hash file' }}
-
     outputs:
       hash_content: ${{ steps.read_hash.outputs.hash_content }}
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Read HASH_FILE content
-        id: read_hash
+      - uses: actions/checkout@v4
+      - id: read_hash
         run: |
           content=$(cat ${{ env.HASH_FILE }}) || true
           echo "hash_content=$content" >> "$GITHUB_OUTPUT"
+
   check:
     name: Check Should Rebuild
     runs-on: ubuntu-latest
     needs: prepare
     outputs:
       canceled: ${{ steps.use_content.outputs.canceled }}
-
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: innei-dev/Yohaku
-          token: ${{ secrets.GH_PAT }} # `GH_PAT` is a secret that contains your PAT
+          repository: innei-dev/shiroi
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
           lfs: true
-          submodules: recursive
-
-      - name: Use content from prev job and compare
-        id: use_content
+      - id: use_content
         env:
           FILE_HASH: ${{ needs.prepare.outputs.hash_content }}
         run: |
           file_hash=$FILE_HASH
           current_hash=$(git rev-parse --short HEAD)
-          echo "File Hash: $file_hash"
-          echo "Current Git Hash: $current_hash"
           if [ "$file_hash" == "$current_hash" ]; then
-            echo "Hashes match. Stopping workflow."
-            echo "canceled=true" >> $GITHUB_OUTPUT
-          else
-            echo "Hashes do not match. Continuing workflow."
+            echo "canceled=true" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -75,57 +58,86 @@ jobs:
     runs-on: ubuntu-latest
     needs: check
     if: ${{needs.check.outputs.canceled != 'true'}}
-
     strategy:
       matrix:
-        node-version: [lts/*]
+        node-version: [20]
     outputs:
       sha_short: ${{ steps.store.outputs.sha_short }}
       branch: ${{ steps.store.outputs.branch }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.SOURCE_REPO }}
-          token: ${{ secrets.GH_PAT }} # `GH_PAT` is a secret that contains your PAT
+          repository: innei-dev/shiroi
+          token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
           lfs: true
-          submodules: recursive
 
       - name: Checkout LFS objects
         run: git lfs checkout
-      - uses: pnpm/action-setup@v2
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+          
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
+          
       - uses: jongwooo/next-cache@v1
+      
       - name: Install dependencies
         run: pnpm install
-      - name: Build project
+        
+      - name: Build project (Bypass broken scripts)
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_GATEWAY_URL: ${{ secrets.NEXT_PUBLIC_GATEWAY_URL }}
         run: |
-          ${{ env.BUILD_COMMAND }}
-          cd apps/web/.next
-          rm -rf cache
-          cp -r ../public ./standalone/public
-          mv ./static ./standalone/apps/web/.next/static
-          cd ./standalone
-          echo ';process.title = "Yohaku (NextJS)"' >> server.js
-          cd "$GITHUB_WORKSPACE"
+          pnpm build
+          
+          STANDALONE_DIR=$(find . -path "*/.next/standalone" -type d | head -n 1)
+          if [ -z "$STANDALONE_DIR" ]; then 
+            exit 1
+          fi
+          
+          NEXT_DIR=$(dirname "$STANDALONE_DIR")
+          APP_DIR=$(dirname "$NEXT_DIR")
+          
+          mv "$STANDALONE_DIR" ./deploy_standalone
+          mkdir -p "./deploy_standalone/$APP_DIR"
+          
+          cp -rL "$APP_DIR/public" "./deploy_standalone/$APP_DIR/public" 2>/dev/null || true
+          mkdir -p "./deploy_standalone/$APP_DIR/.next"
+          cp -rL "$NEXT_DIR/static" "./deploy_standalone/$APP_DIR/.next/static" 2>/dev/null || true
+          
+          mkdir -p ./deploy_standalone/node_modules
+          cp -rL node_modules/@shikijs ./deploy_standalone/node_modules/ 2>/dev/null || true
+          cp -rL node_modules/shiki ./deploy_standalone/node_modules/ 2>/dev/null || true
+          if [ -d "$APP_DIR/node_modules/@shikijs" ]; then
+            cp -rL "$APP_DIR/node_modules/@shikijs" "./deploy_standalone/node_modules/" 2>/dev/null || true
+          fi
+          
+          cd deploy_standalone
+          # 确保有 package.json
+          if [ ! -f "package.json" ]; then
+            echo '{"dependencies":{}}' > package.json
+          fi
+          npm install shiki --production --no-package-lock --legacy-peer-deps
+          
+          NEXT_NODE_MODULES=$(find . -path "*/apps/web/.next/node_modules" -type d | head -n1)
+          if [ -n "$NEXT_NODE_MODULES" ]; then
+            mkdir -p "$NEXT_NODE_MODULES"
+            cp -rL node_modules/@shikijs "$NEXT_NODE_MODULES/"
+          fi
+          cd ..
+          
           mkdir -p assets
-          rm -f assets/release.zip
-          (cd apps/web/.next && zip --symlinks -r "$GITHUB_WORKSPACE/assets/release.zip" ./* -x "dev/*" -x "cache/*")
+          cd deploy_standalone
+          zip -q -r ../assets/release.zip ./*
+          cd ..
 
-      # - uses: actions/upload-artifact@v4
-      #   with:
-      #     name: dist
-      #     path: assets/release.zip
-      #     retention-days: 7
       - name: Cache Build Artifacts
         id: cache-primes
         uses: actions/cache/save@v4
@@ -133,40 +145,24 @@ jobs:
           path: assets
           key: ${{ github.run_number }}-release
 
-      - name: Store artifact commit version
-        shell: bash
-        id: store
+      - id: store
         run: |
-          sha_short=$(git rev-parse --short HEAD)
-          branch_name=$(git rev-parse --abbrev-ref HEAD)
-          echo "sha_short=$sha_short" >> "$GITHUB_OUTPUT"
-          echo "branch=$branch_name" >> "$GITHUB_OUTPUT"
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: Deploy artifact
     runs-on: ubuntu-latest
     needs: build
     steps:
-      # - name: Download artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: dist
-
-      - name: Restore cached Build Artifacts
-        id: cache-primes-restore
-        uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v4
         with:
-          path: |
-            assets
+          path: assets
           key: ${{ github.run_number }}-release
-      - name: Move assets to root
-        run: mv assets/release.zip release.zip
+          
+      - run: mv assets/release.zip release.zip
 
-      - name: Prepare standalone PM2 config
-        run: cp pm2/ecosystem.config.js ecosystem.config.js
-
-      - name: copy file via ssh password
-        uses: appleboy/scp-action@v0.1.7
+      - uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
@@ -174,22 +170,9 @@ jobs:
           key: ${{ secrets.KEY }}
           port: ${{ secrets.PORT }}
           source: 'release.zip'
-          target: '/tmp/yohaku'
+          target: '/tmp/shiro'
 
-      - name: copy PM2 config via ssh password
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USER }}
-          password: ${{ secrets.PASSWORD }}
-          key: ${{ secrets.KEY }}
-          port: ${{ secrets.PORT }}
-          source: 'ecosystem.config.js'
-          target: '/tmp/yohaku'
-
-      - name: Exec deploy script with SSH
-        uses: appleboy/ssh-action@master
-
+      - uses: appleboy/ssh-action@master
         with:
           command_timeout: 5m
           host: ${{ secrets.HOST }}
@@ -200,70 +183,54 @@ jobs:
           script: |
             set -e
             source $HOME/.bashrc
-            basedir=$HOME/yohaku
+            basedir=$HOME/shiro
             workdir=$basedir/${{ github.run_number }}
-            mkdir -p $workdir
-            mkdir -p $basedir/.cache
-            mv /tmp/yohaku/release.zip $workdir/release.zip
-            install -m 644 /tmp/yohaku/ecosystem.config.js $basedir/ecosystem.config.js
-            cd $workdir
-            unzip -qq -o $workdir/release.zip
-            rm -r /tmp/yohaku
-            rm -rf $workdir/${{ env.STANDALONE_SUBPATH }}/.env
-            ln -s $HOME/yohaku/.env $workdir/${{ env.STANDALONE_SUBPATH }}/.env
+            mkdir -p "$workdir" "$basedir/.cache"
+            
+            mv /tmp/shiro/release.zip "$workdir/release.zip"
+            cd "$workdir"
+            unzip -qq -o release.zip
+            rm -rf /tmp/shiro
+            
+            echo 'module.exports = { apps: [{ name: "Shiroi", script: "./server.js", cwd: __dirname, exec_mode: "fork", instances: 1, autorestart: true, watch: false, max_memory_restart: "500M", env: { NODE_ENV: "production", HOSTNAME: "0.0.0.0", PORT: process.env.PORT || 2323, NEXT_SHARP_PATH: process.env.NEXT_SHARP_PATH }, merge_logs: true }] }' > "$basedir/ecosystem.config.js"
+            
+            SERVER_JS_PATH=$(find . -name "server.js" -not -path "*/node_modules/*" | head -n 1)
+            APP_DIR=$(dirname "$SERVER_JS_PATH")
+            
+            rm -rf "$APP_DIR/.env"
+            ln -s "$HOME/shiro/.env" "$APP_DIR/.env"
+            
             export NEXT_SHARP_PATH=$(npm root -g)/sharp
-            # https://github.com/Unitech/pm2/issues/3054
-            # symlink workdir node entry file to basedir
-            ln -sf $workdir/${{ env.STANDALONE_SUBPATH }}/server.js $basedir/server.js
-            mkdir -p $workdir/${{ env.STANDALONE_SUBPATH }}/.next
-            rm -rf $workdir/${{ env.STANDALONE_SUBPATH }}/.next/cache
-            ln -sf $basedir/.cache $workdir/${{ env.STANDALONE_SUBPATH }}/.next/cache
-            cd $basedir
-            if pm2 describe Yohaku >/dev/null 2>&1; then
+            
+            ln -sf "$workdir/$SERVER_JS_PATH" "$basedir/server.js"
+            
+            mkdir -p "$APP_DIR/.next"
+            rm -rf "$APP_DIR/.next/cache"
+            ln -sf "$basedir/.cache" "$APP_DIR/.next/cache"
+            
+            cd "$basedir"
+            if pm2 describe Shiroi >/dev/null 2>&1; then
               pm2 reload ecosystem.config.js --update-env
             else
               pm2 start ecosystem.config.js --update-env
             fi
-            rm $workdir/release.zip
+            
+            rm "$workdir/release.zip"
             pm2 save
-            echo "Deployed successfully"
 
-      - name: After deploy script
-        run: |
-          hash=${{ needs.build.outputs.sha_short }}
-          # curl -X "POST" "https://mx.innei.in/api/v2/fn/shiro/new-version-hook" -H 'Content-Type: application/json' -d "{\"hash\": \"$hash\", \"key\": \"\"}"
-          ${{ secrets.AFTER_DEPLOY_SCRIPT }}
   store:
     name: Store artifact commit version
     runs-on: ubuntu-latest
     needs: [deploy, build]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
-          fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
-      # Get the commit version from the build job
-      - name: Use outputs from build
-        env:
-          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
-          BRANCH: ${{ needs.build.outputs.branch }}
-        run: |
-          echo "SHA Short from build: $SHA_SHORT"
-          echo "Branch from build: $BRANCH"
-      - name: Write hash to file
-        env:
-          SHA_SHORT: ${{ needs.build.outputs.sha_short }}
-
-        run: echo $SHA_SHORT > ${{ env.HASH_FILE }}
-      - name: Commit files
-        run: |
+      - uses: actions/checkout@v4
+      - run: echo ${{ needs.build.outputs.sha_short }} > ${{ env.HASH_FILE }}
+      - run: |
           git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add ${{ env.HASH_FILE }}
           git commit -a -m "Update hash file"
-      - name: Push changes
-        uses: ad-m/github-push-action@master
+      - uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ github.ref }}
