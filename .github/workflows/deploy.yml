@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: innei-dev/shiroi
+          repository: innei-dev/yohaku
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
           lfs: true
@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: innei-dev/shiroi
+          repository: innei-dev/yohaku
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
           lfs: true
@@ -192,7 +192,7 @@ jobs:
             unzip -qq -o release.zip
             rm -rf /tmp/shiro
             
-            echo 'module.exports = { apps: [{ name: "Shiroi", script: "./server.js", cwd: __dirname, exec_mode: "fork", instances: 1, autorestart: true, watch: false, max_memory_restart: "500M", env: { NODE_ENV: "production", HOSTNAME: "0.0.0.0", PORT: process.env.PORT || 2323, NEXT_SHARP_PATH: process.env.NEXT_SHARP_PATH }, merge_logs: true }] }' > "$basedir/ecosystem.config.js"
+            echo 'module.exports = { apps: [{ name: "yohaku", script: "./server.js", cwd: __dirname, exec_mode: "fork", instances: 1, autorestart: true, watch: false, max_memory_restart: "500M", env: { NODE_ENV: "production", HOSTNAME: "0.0.0.0", PORT: process.env.PORT || 2323, NEXT_SHARP_PATH: process.env.NEXT_SHARP_PATH }, merge_logs: true }] }' > "$basedir/ecosystem.config.js"
             
             SERVER_JS_PATH=$(find . -name "server.js" -not -path "*/node_modules/*" | head -n 1)
             APP_DIR=$(dirname "$SERVER_JS_PATH")
@@ -209,7 +209,7 @@ jobs:
             ln -sf "$basedir/.cache" "$APP_DIR/.next/cache"
             
             cd "$basedir"
-            if pm2 describe Shiroi >/dev/null 2>&1; then
+            if pm2 describe yohaku >/dev/null 2>&1; then
               pm2 reload ecosystem.config.js --update-env
             else
               pm2 start ecosystem.config.js --update-env
