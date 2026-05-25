@@ -275,6 +275,3 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ github.ref }}
-          force: false  # 改为 false 确保安全
-          # 添加这些参数
-          repository: climbingmouse/yohaku-deploy-action
