@@ -95,7 +95,8 @@ jobs:
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_GATEWAY_URL: ${{ secrets.NEXT_PUBLIC_GATEWAY_URL }}
         run: |
-          pnpm build --filter '@yohaku/web...' --parallel
+          pnpm --filter '@yohaku/design-system' build
+          pnpm --filter '@yohaku/web' build
           
           STANDALONE_DIR=$(find . -path "*/.next/standalone" -type d | head -n 1)
           if [ -z "$STANDALONE_DIR" ]; then 
