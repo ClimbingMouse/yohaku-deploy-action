@@ -17,7 +17,7 @@ concurrency:
 
 env:
   HASH_FILE: build_hash
-  SOURCE_REPO: innei-dev/Yohaku
+  SOURCE_REPO: ClimbingMouse/yohaku-src
   BUILD_COMMAND: pnpm --filter @yohaku/web build:ci
   STANDALONE_SUBPATH: standalone/apps/web
 
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: innei-dev/Yohaku
+          repository: ClimbingMouse/yohaku-src
           token: ${{ secrets.GH_PAT }} # `GH_PAT` is a secret that contains your PAT
           fetch-depth: 0
           lfs: true
