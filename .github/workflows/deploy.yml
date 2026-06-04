@@ -228,6 +228,7 @@ jobs:
             fi
             rm $workdir/release.zip
             pm2 save
+            bash $HOME/yohaku/patch-feeds.sh
             echo "Deployed successfully"
 
       - name: After deploy script
