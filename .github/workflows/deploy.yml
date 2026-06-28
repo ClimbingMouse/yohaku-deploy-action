@@ -180,6 +180,8 @@ jobs:
           echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p ${{ secrets.PORT }} -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          # 预创建服务器上的目标目录，rsync 默认不递归创建多层目录
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.PORT }} ${{ secrets.USER }}@${{ secrets.HOST }} "mkdir -p /tmp/yohaku/release_out"
 
       # rsync 增量传输：解压后的内容同步到服务器固定目录，只传有变化的文件
       - name: rsync incremental deploy
