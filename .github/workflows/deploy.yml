@@ -148,7 +148,7 @@ jobs:
     needs: build
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/cache/restore@v4
         with:
           path: assets
@@ -167,15 +167,27 @@ jobs:
       - name: Prepare standalone PM2 config
         run: cp pm2/ecosystem.config.js ecosystem.config.js
 
-      - name: copy file via ssh
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.PORT }}
-          source: 'release.zip'
-          target: '/tmp/yohaku'
+      # 解压 release.zip 到本地目录，用 rsync 增量同步到服务器
+      - name: Unpack release for rsync
+        run: |
+          mkdir -p release_out
+          unzip -qq -o release.zip -d release_out
+
+      # 配置 SSH，rsync 增量同步（只传变化的文件）
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.PORT }} -H ${{ secrets.HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      # rsync 增量传输：解压后的内容同步到服务器固定目录，只传有变化的文件
+      - name: rsync incremental deploy
+        run: |
+          rsync -azP --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.PORT }}" \
+            release_out/ \
+            ${{ secrets.USER }}@${{ secrets.HOST }}:/tmp/yohaku/release_out/
 
       - name: copy PM2 config via ssh
         uses: appleboy/scp-action@v0.1.7
@@ -203,15 +215,12 @@ jobs:
             workdir=$basedir/${{ github.run_number }}
             mkdir -p $workdir
             mkdir -p $basedir/.cache
-            mv /tmp/yohaku/release.zip $workdir/release.zip
+            # rsync 已同步到 /tmp/yohaku/release_out，直接移动到 workdir
+            cp -a /tmp/yohaku/release_out/. $workdir/
             install -m 644 /tmp/yohaku/ecosystem.config.js $basedir/ecosystem.config.js
-            cd $workdir
-            unzip -qq -o $workdir/release.zip
-            rm -r /tmp/yohaku
             rm -rf $workdir/${{ env.STANDALONE_SUBPATH }}/.env
             ln -s $HOME/yohaku/.env $workdir/${{ env.STANDALONE_SUBPATH }}/.env
             export NEXT_SHARP_PATH=$(npm root -g)/sharp
-            # https://github.com/Unitech/pm2/issues/3054
             # symlink workdir node entry file to basedir
             ln -sf $workdir/${{ env.STANDALONE_SUBPATH }}/server.js $basedir/server.js
             mkdir -p $workdir/${{ env.STANDALONE_SUBPATH }}/.next
@@ -223,7 +232,6 @@ jobs:
             else
               pm2 start ecosystem.config.js --update-env
             fi
-            rm $workdir/release.zip
             pm2 save
             bash $HOME/yohaku/patch-feeds.sh
             echo "Deployed successfully"
