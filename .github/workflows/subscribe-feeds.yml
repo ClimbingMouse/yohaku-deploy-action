@@ -1,0 +1,47 @@
+name: Subscribe Feeds Bot
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # 每 30 分钟
+  workflow_dispatch:          # 允许手动触发
+
+permissions: write-all
+concurrency:
+  group: subscribe-feeds
+  cancel-in-progress: true
+
+jobs:
+  check-and-notify:
+    name: Check feeds and notify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Run check script
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FRIENDS_API: https://bambooo.top/api/v3/links/all
+        run: node scripts/check-feeds.mjs
+
+      - name: Commit state if changed
+        if: always()
+        run: |
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          if git diff --quiet feed-state.json; then
+            echo "No state changes"
+          else
+            git add feed-state.json
+            git commit -m "bot: update feed state"
+            git push
+            echo "State committed"
+          fi
