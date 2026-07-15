@@ -112,7 +112,9 @@ jobs:
           ${{ env.BUILD_COMMAND }}
           cd apps/web/.next
           rm -rf cache
-          cp -r ../public ./standalone/public
+          # public/ must sit next to server.js (its __dirname), same as .next/static below.
+          # Putting it at ./standalone/public makes every /public asset 404 at runtime.
+          cp -r ../public ./standalone/apps/web/public
           mv ./static ./standalone/apps/web/.next/static
           cd ./standalone
           echo ';process.title = "Yohaku (NextJS)"' >> server.js
@@ -222,6 +224,12 @@ jobs:
             install -m 644 /tmp/yohaku/ecosystem.config.js $basedir/ecosystem.config.js
             rm -rf $workdir/${{ env.STANDALONE_SUBPATH }}/.env
             ln -s $HOME/yohaku/.env $workdir/${{ env.STANDALONE_SUBPATH }}/.env
+            # Fallback: older builds (<=136) shipped public/ at the standalone root
+            # instead of next to server.js. Symlink it into place so rollbacks to
+            # those builds don't 404 every /public asset (favicon, fonts/*, icons).
+            if [ ! -e "$workdir/${{ env.STANDALONE_SUBPATH }}/public" ] && [ -d "$workdir/standalone/public" ]; then
+              ln -s ../../public "$workdir/${{ env.STANDALONE_SUBPATH }}/public"
+            fi
             export NEXT_SHARP_PATH=$(npm root -g)/sharp
             # symlink workdir node entry file to basedir
             ln -sf $workdir/${{ env.STANDALONE_SUBPATH }}/server.js $basedir/server.js
