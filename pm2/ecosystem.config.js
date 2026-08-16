@@ -13,6 +13,8 @@ module.exports = {
         NODE_ENV: 'production',
         HOSTNAME: '0.0.0.0',
         PORT: process.env.PORT || 2323,
+        NEXT_PUBLIC_AMAP_KEY: process.env.NEXT_PUBLIC_AMAP_KEY || '',
+        AMAP_SECRET: process.env.AMAP_SECRET || '',
       },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
