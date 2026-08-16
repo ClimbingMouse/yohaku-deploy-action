@@ -108,6 +108,7 @@ jobs:
           BASE_URL: ${{ secrets.BASE_URL }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_GATEWAY_URL: ${{ secrets.NEXT_PUBLIC_GATEWAY_URL }}
+          NEXT_PUBLIC_AMAP_KEY: ${{ secrets.NEXT_PUBLIC_AMAP_KEY }}
         run: |
           ${{ env.BUILD_COMMAND }}
           cd apps/web/.next
@@ -231,6 +232,12 @@ jobs:
               ln -s ../../public "$workdir/${{ env.STANDALONE_SUBPATH }}/public"
             fi
             export NEXT_SHARP_PATH=$(npm root -g)/sharp
+            # 确保高德相关环境变量进入 PM2 进程；服务器 .env 存在时也先加载。
+            set -a
+            [ -f "$HOME/yohaku/.env" ] && source "$HOME/yohaku/.env"
+            set +a
+            export NEXT_PUBLIC_AMAP_KEY="${{ secrets.NEXT_PUBLIC_AMAP_KEY }}"
+            export AMAP_SECRET="${{ secrets.AMAP_SECRET }}"
             # symlink workdir node entry file to basedir
             ln -sf $workdir/${{ env.STANDALONE_SUBPATH }}/server.js $basedir/server.js
             mkdir -p $workdir/${{ env.STANDALONE_SUBPATH }}/.next
