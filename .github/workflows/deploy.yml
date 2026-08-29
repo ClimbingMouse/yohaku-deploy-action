@@ -103,6 +103,13 @@ jobs:
       - uses: jongwooo/next-cache@v1
       - name: Install dependencies
         run: pnpm install
+      # apps/web 的 socket worker 由 esbuild 预打包到 public/（turbopack 无法编译
+      # `new Worker(new URL('./io.worker.ts'))`，会把原始 .ts 当静态资产发布，
+      # 浏览器拒绝执行导致实时层瘫痪。worker-client.ts 引用固定路径 /workers/io.worker.js
+      - name: Build socket worker bundle
+        run: |
+          cd apps/web
+          npx -y esbuild@0.25 src/socket/io.worker.ts --bundle --format=esm --platform=browser --minify --outfile=public/workers/io.worker.js
       - name: Build project
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
