@@ -109,7 +109,7 @@ jobs:
       - name: Build socket worker bundle
         run: |
           cd apps/web
-          npx -y esbuild@0.25 src/socket/io.worker.ts --bundle --format=esm --platform=browser --minify --outfile=public/workers/io.worker.js
+          pnpm dlx esbuild@0.25.12 src/socket/io.worker.ts --bundle --format=esm --platform=browser --minify --outfile=public/workers/io.worker.js
       - name: Build project
         env:
           BASE_URL: ${{ secrets.BASE_URL }}
